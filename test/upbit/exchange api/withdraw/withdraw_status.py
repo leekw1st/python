@@ -12,10 +12,10 @@ import requests
 
 access_key = '6KJxPmeR58U1UpZyJcn8GMBKyxZ8fOx5UgDoyfED'
 secret_key = 'ApD12Hxdryx0FhX2Gdc2l5Dh9n8N29uomgFboDhl'
-server_url = 'https://api.upbit.com']
+server_url = 'https://api.upbit.com'
 
 query = {
-    'uuid': '9f432943-54e0-40b7-825f-b6fec8b42b79'
+    'uuid':'57aac7ad-20dd-474c-a9ff-d18bacaa9619'
 }
 query_string = urlencode(query).encode()
 

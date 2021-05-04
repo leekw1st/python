@@ -15,13 +15,13 @@ secret_key = 'ApD12Hxdryx0FhX2Gdc2l5Dh9n8N29uomgFboDhl'
 server_url = 'https://api.upbit.com'
 
 query = {
-    'currency': 'XRP',
-    'state': 'done',
+    'currency': 'KRW',
+    'state': 'processing',
 }
 query_string = urlencode(query)
 
 txids = [
-    '98c15999f0bdc4ae0e8a-ed35868bb0c204fe6ec29e4058a3451e-88636d1040f4baddf943274ce37cf9cc',
+    'BKW-2021-05-04-c28f01e778af4d85671d893d14',
     #...
 ]
 txids_query_string = '&'.join(["txids[]={}".format(txid) for txid in txids])
