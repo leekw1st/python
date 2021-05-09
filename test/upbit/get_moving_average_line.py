@@ -23,3 +23,9 @@ def get_low_moving_average(ticker, avg_day):
     ma = low.rolling(avg_day).mean()
 
     return ma
+
+
+close = get_moving_average('KRW-DOGE', 1)    
+print(close)
+close = get_moving_average('KRW-DOGE', 5)    
+print(close)
