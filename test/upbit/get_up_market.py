@@ -7,10 +7,14 @@ import pprint
 def get_up_market2():
     tickers = pyupbit.get_tickers("KRW")
     start_time = datetime.datetime.now()
+<<<<<<< HEAD
 
     # 5일 이동평균 사용 상승장 대상 코인 
     # Input : tickers
     # Output : 5일 이동평균 사용하여 상승장으로 판단된 코인 색출
+=======
+    
+>>>>>>> e78ef92dda31016e6bec36b337b0167ccb161acc
     i, j = 0, 100
     up_cnt, down_cnt= 0, 0
     len_all_list = len(tickers)
@@ -18,10 +22,17 @@ def get_up_market2():
     while (j < len_all_list+100) :
         if(j>len_all_list) :
             j=len_all_list
+<<<<<<< HEAD
         
         tickers_tmp = tickers[i:j]
         all_item = pyupbit.get_current_price(tickers_tmp)
         
+=======
+        
+        tickers_tmp = tickers[i:j]
+        all_item = pyupbit.get_current_price(tickers_tmp)
+        
+>>>>>>> e78ef92dda31016e6bec36b337b0167ccb161acc
         for ticker in all_item:
             df = pyupbit.get_ohlcv(ticker)
             ma5 = df['close'].rolling(5).mean()
