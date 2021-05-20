@@ -6,6 +6,7 @@ import datetime
 import time
 import pprint
 from urllib.parse import urlencode
+from pyupbit.quotation_api import get_current_price
 from pyupbit.request_api import _send_get_request, _send_post_request, _send_delete_request, _call_public_api
 
 
@@ -13,20 +14,27 @@ def net_change_desc(tickers, coin_cnt):
     try:
         url = "https://api.upbit.com/v1/ticker"
         contents = _call_public_api(url, markets=tickers)[0]
-
-        ret = {}       
-
+        coin_list = [] 
+        
         for content in contents:
+            coin = {}       
             market = content['market']
 
             price = content['trade_price']
             open_price = content['opening_price']
             prev_closing_price = content['prev_closing_price']
 
-            ret[market]['price'] = price
-            ret[market]['open_price'] = open_price
-            ret[market]['prev_closing_price'] = prev_closing_price
-        return ret
+            coin['market'] = market
+            coin['price'] = price
+            coin['open_price'] = open_price
+            coin['prev_closing_price'] = prev_closing_price
+            coin['net_change'] = price - prev_closing_price
+            coin_list.append(coin) 
+
+        sorted_coin_list = sorted( coin_list, key=( lambda x : x['net_change']),reverse=True )
+
+        return sorted_coin_list
+
     except Exception as x:
         print(x.__class__.__name__)
 
@@ -71,11 +79,15 @@ def ma_golden_cross(tickers, days):
         j=j+100    
 
     #pprint.pprint(coin)
-    print("ma",days,"_golden_cross Strategy END.")
+    print("ma",days,"_golden_cross Strategy END. result[",up_cnt,"]")
 
     return coin
 
+
 class Coinpot:
+
+    order_list = []
+
     def __init__(self, access, secret):
         self.access = access
         self.secret = secret
@@ -193,9 +205,9 @@ class Coinpot:
             #------------------------------------
             # Coin 검색 전략 추가
             #------------------------------------
-            #tickers = ma_golden_cross(tickers, 60)
-            #tickers = ma_golden_cross(tickers, 20)
-            #tickers = ma_golden_cross(tickers, 5)
+            tickers = ma_golden_cross(tickers, 60)
+            tickers = ma_golden_cross(tickers, 20)
+            tickers = ma_golden_cross(tickers, 5)
 
             tickers = net_change_desc(tickers, coin_cnt)
             
@@ -203,10 +215,41 @@ class Coinpot:
             print("대상코인수:[",len(tickers),"]","소요시간:[",end_time - start_time, "]")
             print("코인[",tickers,"]")
                     
+            return tickers
+
         except Exception as x:
             print(x.__class__.__name__)
             return None
 
+    
+    def order_buy(self, ticker, investing_amount):
+        """
+        지정가 매수
+        :param ticker: 마켓 티커
+        :param price: 주문 가격
+        :param volume: 주문 수량
+        :return:
+        """
+        try:
+            ticker_price = get_current_price(ticker)
+
+            volume = investing_amount // ticker_price
+
+            print("수량:",volume , "현재가:", ticker_price,"투자금액:",investing_amount)
+
+            url = "https://api.upbit.com/v1/orders"
+            data = {"market": ticker,
+                    "side": "bid",
+                    "volume": str(volume),
+                    "price": str(ticker_price),
+                    "ord_type": "limit"}
+            headers = self._request_headers(data)
+            result = _send_post_request(url, headers=headers, data=data)
+            
+            return result[0]
+        except Exception as x:
+            print(x.__class__.__name__)
+            return None            
 
 
 if __name__ == "__main__":
@@ -223,14 +266,18 @@ if __name__ == "__main__":
     #coinpot.get_account_status()
     
     # 투자 가능 금액 조회
-    #invest_asset = coinpot.get_invest_asset()
+    invest_asset = coinpot.get_invest_asset()
     
     # 보유 코인 갯수 조회
-    #holding_coin_cnt = coinpot.get_holding_coin_cnt()
+    holding_coin_cnt = coinpot.get_holding_coin_cnt()
     
     # 투자 대상 코인 조회
     target_coin= coinpot.get_coin_list()
 
-#    print("투자 가능 금액 :", invest_asset, "보유코인 갯수:", holding_coin_cnt)
-    print("투자 대상 코인 :", target_coin)
-    
+    print("투자 가능 금액 :", invest_asset, "보유코인 갯수:", holding_coin_cnt)
+    #print("투자 대상 코인 :", target_coin)
+    print("투자 대상 코인 :", target_coin[0]['market'])
+
+    order_result=coinpot.order_buy(target_coin[0]['market'], invest_asset)    
+    coinpot.order_list.append(order_result) 
+    print(coinpot.order_list[0]['market'], coinpot.order_list[0]['uuid'])
