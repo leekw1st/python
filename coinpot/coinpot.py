@@ -5,6 +5,7 @@ import pyupbit
 import datetime
 import time
 import pprint
+import traceback
 from urllib.parse import urlencode
 from pyupbit.quotation_api import get_current_price
 from pyupbit.request_api import _send_get_request, _send_post_request, _send_delete_request, _call_public_api
@@ -36,6 +37,7 @@ def net_change_desc(tickers, coin_cnt):
         return sorted_coin_list
 
     except Exception as x:
+        print(traceback.format_exc())
         print(x.__class__.__name__)
 
 #-----------------------------------------------
@@ -49,7 +51,6 @@ def ma_golden_cross(tickers, days):
     up_cnt, down_cnt= 0, 0
     len_all_list = len(tickers)
     coin = []
-    print("ma",days,"_golden_cross Strategy START")
 
     while (j < len_all_list+100) :
         if(j>len_all_list) :
@@ -67,19 +68,18 @@ def ma_golden_cross(tickers, days):
             
             if price > last_ma : 
                 up_cnt=up_cnt+1
-                print(ticker, "상승장")
+                #print(ticker, "상승장")
                 coin.append(ticker)
             else:
                 down_cnt=down_cnt+1
-                print(ticker, "하락장")
+                #print(ticker, "하락장")
             
             time.sleep(0.05)
         
         i=i+100 
         j=j+100    
 
-    #pprint.pprint(coin)
-    print("ma",days,"_golden_cross Strategy END. result[",up_cnt,"]")
+    print("ma",days,"_golden_cross Strategy. result[",up_cnt,"]")
 
     return coin
 
@@ -122,7 +122,7 @@ class Coinpot:
             asset_list_length = len(asset_list)
             total_asset = 0
             total_buy_price = 0 
-            total_current_price = 0
+            total_coin_price = 0
 
             for i in range(asset_list_length):
                 currency = asset_list[i]['currency']
@@ -143,42 +143,69 @@ class Coinpot:
                                 "[", round((price * balance - avg_buy_price * balance)/(avg_buy_price * balance) * 100, 2) ,"]")
                     total_asset = total_asset + price * balance
                     total_buy_price = total_buy_price + (avg_buy_price * balance)
-                    total_current_price = total_current_price +  (price *balance)
+                    total_coin_price = total_coin_price +  (price *balance)
 
             print("총 보유자산 : ", total_asset, 
                 ", 총 매수금액 : ", total_buy_price,
-                ", 총 평가금액 : ", total_current_price,
-                ", 총 평가손익 : ", total_current_price - total_buy_price,
-                "[",round((total_current_price - total_buy_price) / total_buy_price * 100, 2),"]")     
+                ", 총 평가금액 : ", total_coin_price,
+                ", 총 평가손익 : ", total_coin_price - total_buy_price,
+                "[",round((total_coin_price - total_buy_price) / total_buy_price * 100, 2),"]")     
         except Exception as x:
             print(x.__class__.__name__)
+            print(traceback.format_exc())
             return None
 
-    # 투자 가능한 금액 조회
-    def get_invest_asset(self):
+    def get_balance(self):
         try:
-            invest_asset=0
             url = "https://api.upbit.com/v1/accounts"
             headers = self._request_headers()
             result = _send_get_request(url, headers=headers)
-            asset_list = result[0]
-            asset_list_length = len(asset_list)
+            return result[0]
+        except Exception as x:
+            print(x.__class__.__name__)
+            print(traceback.format_exc())
+            return None
 
-            for i in range(asset_list_length):
-                currency = asset_list[i]['currency']
-                balance = float(asset_list[i]['balance'])
-                #---------------------------------------
-                # 보유 원화 조회
-                # 투자가능 금액 결정 전략 추가
-                #---------------------------------------
+    # 투자 가능한 금액 조회
+    def get_invest_asset(self, invest_ratio=70):
+        try:
+            total_asset=0           #총자산
+            total_invest_asset=0    #투자가능총자산
+            total_coin_asset=0      #코인총자산
+            locked_asset=0          #미체결총자산
+            current_invest_asset=0  #현재투자가능자산
+
+            balance_list = self.get_balance()
+            
+            for x in balance_list:
+                currency = x['currency']
+                balance = float(x['balance'])
+                
                 if currency == 'KRW' :
-                    # invest_asset = Strategy(balance)
-                    invest_asset = balance * 0.7
+                    locked_asset = round(float(x['locked']))
+                    total_asset = round(total_asset + balance + locked_asset)
+                else  :
+                    price = pyupbit.get_current_price('KRW-' + currency)
+                    total_asset = round(total_asset + price * balance)
+                    total_coin_asset = round(total_coin_asset + (price * balance))
 
-            return invest_asset                    
+            total_invest_asset = round((total_asset) * invest_ratio / 100) # 투자가능총자산
+            
+            current_invest_asset = round(total_invest_asset - total_coin_asset -locked_asset)
+            
+            print("get_inves_asset - ",
+                  "총자산:",total_asset,
+                  "원화:",total_asset-total_coin_asset-locked_asset,
+                  "코인:",total_coin_asset,
+                  "투자가능총자산:",total_invest_asset,
+                  "미체결:", locked_asset,
+                  "현재투자가능금액:", current_invest_asset)
+            
+            return current_invest_asset 
 
         except Exception as x:
             print(x.__class__.__name__)
+            print(traceback.format_exc())
             return None
 
 
@@ -190,11 +217,15 @@ class Coinpot:
             result = _send_get_request(url, headers=headers)
             asset_list = result[0]
             holding_coin_cnt= len(asset_list)-1
-            
+
+            print("get_holding_coin_cnt - ",
+                  "보유코인갯수:", holding_coin_cnt)
+
             return holding_coin_cnt
         
         except Exception as x:
             print(x.__class__.__name__)
+            print(traceback.format_exc())
             return None
 
     def get_coin_list(self, coin_cnt=1):
@@ -212,13 +243,13 @@ class Coinpot:
             tickers = net_change_desc(tickers, coin_cnt)
             
             end_time = datetime.datetime.now()
-            print("대상코인수:[",len(tickers),"]","소요시간:[",end_time - start_time, "]")
-            print("코인[",tickers,"]")
+            print("소요시간:[",end_time - start_time, "]","전략 대상 코인 수:[",len(tickers),"]")
                     
             return tickers
 
         except Exception as x:
             print(x.__class__.__name__)
+            print(traceback.format_exc())
             return None
 
     
@@ -235,7 +266,10 @@ class Coinpot:
 
             volume = investing_amount // ticker_price
 
-            print("수량:",volume , "현재가:", ticker_price,"투자금액:",investing_amount)
+            print("order_buy - ", "대상:", ticker, "수량:",volume , "현재가:", ticker_price,"투자금액:",investing_amount)
+            
+            if volume * ticker_price < 5000:
+                return None
 
             url = "https://api.upbit.com/v1/orders"
             data = {"market": ticker,
@@ -249,8 +283,144 @@ class Coinpot:
             return result[0]
         except Exception as x:
             print(x.__class__.__name__)
+            print(traceback.format_exc())
             return None            
 
+    def is_order_possible(self, ticker, investing_amount):
+        try:
+            ticker_price = get_current_price(ticker)
+
+            volume = investing_amount // ticker_price
+
+            if volume * ticker_price > 5000:
+                return True 
+            else:
+                return False
+        
+        except Exception as x:
+            print(x.__class__.__name__)
+            print(traceback.format_exc())
+            return None            
+
+    def get_coin_count(self, ticker):
+        try:
+            url = "https://api.upbit.com/v1/accounts"
+            headers = self._request_headers()
+            result = _send_get_request(url, headers=headers)
+            asset_list = result[0]
+            asset_list_length = len(asset_list)
+
+            for i in range(asset_list_length):
+                currency = asset_list[i]['currency']
+
+                if 'KRW-'+currency == ticker :
+                    balance = float(asset_list[i]['balance'])
+                    return balance
+
+        except Exception as x:
+            print(x.__class__.__name__)
+            print(traceback.format_exc())
+            return None
+
+
+    def order_sell(self, ticker):
+        """
+        지정가 매도
+        :param ticker: 마켓 티커
+        :param price: 주문 가격
+        :param volume: 주문 수량
+        :param contain_req: Remaining-Req 포함여부
+        :return:
+        """
+        try:
+            print("Sell")
+            ticker_price = get_current_price(ticker)
+            volume = self.get_coin_count(ticker)
+            print("ticker_price:", ticker_price, "volume:", volume)
+
+            url = "https://api.upbit.com/v1/orders"
+            data = {"market": ticker,
+                    "side": "ask",
+                    "volume": str(volume),
+                    "price": str(ticker_price),
+                    "ord_type": "limit"}
+            headers = self._request_headers(data)
+            result = _send_post_request(url, headers=headers, data=data)
+
+            return result[0]
+        except Exception as x:
+            print(x.__class__.__name__)
+            print(traceback.format_exc())
+            return None
+
+    def status_check(self, ticker):
+        try:
+            url = "https://api.upbit.com/v1/accounts"
+            headers = self._request_headers()
+            result = _send_get_request(url, headers=headers)
+            asset_list = result[0]
+            asset_list_length = len(asset_list)
+
+            if  asset_list_length  > 0 :
+                for x in asset_list:
+                    currency = x['currency']
+                    coin = 'KRW-'+x['currency']
+                    balance = float(x['balance'])
+                    avg_buy_price = float(x['avg_buy_price'])
+                    
+                    if coin == ticker and ticker != 'KRW':
+                        price = pyupbit.get_current_price('KRW-' + currency)
+                        rate = round((price * balance - avg_buy_price * balance)/(avg_buy_price * balance) * 100, 2)
+
+                        print("코인:",coin,"수익률:",rate)
+
+                        if rate > 3:
+                            return 'upsell'
+                        elif rate < -2:
+                            return 'downsell'
+                        else:
+                            return 'hold'
+
+            return 'Not Exist'
+
+        except Exception as x:
+            print(x.__class__.__name__)
+            print(traceback.format_exc())
+            return None   
+
+    def get_order_state(self, ticker, uuid):
+        # TODO : states, uuids, identifiers 관련 기능 추가 필요
+        try:
+            url = "https://api.upbit.com/v1/orders"
+            data = {'market': ticker,
+                    'state': 'wait',
+                    'uuid': uuid,
+                    'order_by': 'desc'
+                    }
+            headers = self._request_headers(data)
+            result = _send_get_request(url, headers=headers, data=data)
+            
+            if result[0] :
+                print('1:', result)
+            elif not result[0] :
+                data = {'market': ticker,
+                        'state': 'done',
+                        'uuid': uuid,
+                        'order_by': 'desc'
+                        }
+                headers = self._request_headers(data)
+                result = _send_get_request(url, headers=headers, data=data)
+
+            return result[0][0]['state']
+
+        except Exception as x:
+            print(x.__class__.__name__)
+            print(traceback.format_exc())
+            return None
+
+    def cancel_wait_order(self):
+        pass 
+        return
 
 if __name__ == "__main__":
     import pprint
@@ -264,20 +434,42 @@ if __name__ == "__main__":
 
     # 해당 계좌의 상태 조회
     #coinpot.get_account_status()
-    
-    # 투자 가능 금액 조회
-    invest_asset = coinpot.get_invest_asset()
-    
-    # 보유 코인 갯수 조회
-    holding_coin_cnt = coinpot.get_holding_coin_cnt()
-    
-    # 투자 대상 코인 조회
-    target_coin= coinpot.get_coin_list()
 
-    print("투자 가능 금액 :", invest_asset, "보유코인 갯수:", holding_coin_cnt)
-    #print("투자 대상 코인 :", target_coin)
-    print("투자 대상 코인 :", target_coin[0]['market'])
+    
+    while True :  
+        signal = 'default' 
+        print("=====================================================================================================")
+        
+        # 투자 가능 금액 조회
+        current_invest_asset = coinpot.get_invest_asset(70)
+        
+        # 보유 코인 갯수 조회
+        holding_coin_cnt = coinpot.get_holding_coin_cnt()
 
-    order_result=coinpot.order_buy(target_coin[0]['market'], invest_asset)    
-    coinpot.order_list.append(order_result) 
-    print(coinpot.order_list[0]['market'], coinpot.order_list[0]['uuid'])
+        if current_invest_asset > 5000 and holding_coin_cnt == 0:
+            # 투자 대상 코인 조회
+            target_coin= coinpot.get_coin_list()
+
+            # 투자 가능한 코인 개수에 따라 target_coin 인자 변경 
+            # target_coin[1]['market'], target_coin[2]['market'] ...
+            # TODO 매수 결과는 order list에 관리
+            # 신규 매수시 list에 추가, 매도 및 주문 취소시 해당 원소 삭제
+            if coinpot.is_order_possible(target_coin[0]['market'], current_invest_asset) == True:
+                order_result=coinpot.order_buy(target_coin[0]['market'], current_invest_asset)    
+                print('UUID:', order_result['uuid'], '상태:', order_result['state'])
+        
+        print('주문상태:',order_result['market'],',',
+        coinpot.get_order_state(order_result['market'], order_result['uuid']))        
+
+        if coinpot.get_order_state(order_result['market'], order_result['uuid']) == 'done':
+            signal = coinpot.status_check(order_result['market'])
+
+        print("주문신호:", signal)
+
+        if signal == 'upsell' or signal == 'downsell' :
+           result = coinpot.order_sell(order_result['market']) 
+           print(result)
+
+
+        time.sleep(1)    
+        
