@@ -46,7 +46,7 @@ def net_change_desc(tickers, coin_cnt):
 #   tickers : 검색대상 coin
 #   days : N일
 #-----------------------------------------------
-def ma_golden_cross(tickers, days):
+def ma_golden_cross(tickers, interval, term):
     i, j = 0, 100
     up_cnt, down_cnt= 0, 0
     len_all_list = len(tickers)
@@ -60,26 +60,26 @@ def ma_golden_cross(tickers, days):
         all_item = pyupbit.get_current_price(tickers_tmp)
         
         for ticker in all_item:
-            df = pyupbit.get_ohlcv(ticker)
-            ma = df['close'].rolling(days).mean()
+            df = pyupbit.get_ohlcv(ticker, interval)
+            ma = df['close'].rolling(term).mean()
             price = float(all_item[ticker])
 
             last_ma = ma[-2]
             
             if price > last_ma : 
                 up_cnt=up_cnt+1
-                #print(ticker, "상승장")
+                print(ticker, "상승장")
                 coin.append(ticker)
             else:
                 down_cnt=down_cnt+1
-                #print(ticker, "하락장")
+                print(ticker, "하락장")
             
             time.sleep(0.05)
         
         i=i+100 
         j=j+100    
 
-    print("ma",days,"_golden_cross Strategy. result[",up_cnt,"]")
+    print("ma",interval,'[',term,']',"_golden_cross Strategy. result[",up_cnt,"]")
 
     return coin
 
@@ -236,11 +236,16 @@ class Coinpot:
             #------------------------------------
             # Coin 검색 전략 추가
             #------------------------------------
-            tickers = ma_golden_cross(tickers, 60)
-            tickers = ma_golden_cross(tickers, 20)
-            tickers = ma_golden_cross(tickers, 5)
+            #tickers = ma_golden_cross(tickers, interval='day', term=60)
+            #tickers = ma_golden_cross(tickers, interval='day', term=20)
+            tickers = ma_golden_cross(tickers, interval='day', term=3)
+            print(tickers)
+            #tickers = ma_golden_cross(tickers, interval='minutes1', term=5)
+            tickers = ma_golden_cross(tickers, interval='minutes1', term=3)
 
+            print(tickers)
             tickers = net_change_desc(tickers, coin_cnt)
+            print(tickers)
             
             end_time = datetime.datetime.now()
             print("소요시간:[",end_time - start_time, "]","전략 대상 코인 수:[",len(tickers),"]")
@@ -324,14 +329,6 @@ class Coinpot:
 
 
     def order_sell(self, ticker):
-        """
-        지정가 매도
-        :param ticker: 마켓 티커
-        :param price: 주문 가격
-        :param volume: 주문 수량
-        :param contain_req: Remaining-Req 포함여부
-        :return:
-        """
         try:
             print("Sell")
             ticker_price = get_current_price(ticker)
