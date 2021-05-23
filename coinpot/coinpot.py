@@ -10,6 +10,8 @@ from urllib.parse import urlencode
 from pyupbit.quotation_api import get_current_price
 from pyupbit.request_api import _send_get_request, _send_post_request, _send_delete_request, _call_public_api
 
+def get_time_term():
+    pass
 
 def net_change_desc(tickers, coin_cnt):
     try:
@@ -68,11 +70,11 @@ def ma_golden_cross(tickers, interval, term):
             
             if price > last_ma : 
                 up_cnt=up_cnt+1
-                print(ticker, "상승장")
+                #print(ticker, "상승장")
                 coin.append(ticker)
             else:
                 down_cnt=down_cnt+1
-                print(ticker, "하락장")
+                #print(ticker, "하락장")
             
             time.sleep(0.05)
         
@@ -180,20 +182,23 @@ class Coinpot:
             for x in balance_list:
                 currency = x['currency']
                 balance = float(x['balance'])
+                locked = round(float(x['locked']))
                 
                 if currency == 'KRW' :
-                    locked_asset = round(float(x['locked']))
+                    locked_asset = locked_asset + locked
                     total_asset = round(total_asset + balance + locked_asset)
                 else  :
                     price = pyupbit.get_current_price('KRW-' + currency)
-                    total_asset = round(total_asset + price * balance)
+                    locked_asset = locked_asset + (price * locked)
+                    total_asset = round(total_asset + locked_asset + price * balance)
                     total_coin_asset = round(total_coin_asset + (price * balance))
+
 
             total_invest_asset = round((total_asset) * invest_ratio / 100) # 투자가능총자산
             
             current_invest_asset = round(total_invest_asset - total_coin_asset -locked_asset)
             
-            print("get_inves_asset - ",
+            print("get_invest_asset - ",
                   "총자산:",total_asset,
                   "원화:",total_asset-total_coin_asset-locked_asset,
                   "코인:",total_coin_asset,
@@ -230,26 +235,30 @@ class Coinpot:
 
     def get_coin_list(self, coin_cnt=1):
         try:
-            tickers = pyupbit.get_tickers("KRW")
-            start_time = datetime.datetime.now()
-            
-            #------------------------------------
-            # Coin 검색 전략 추가
-            #------------------------------------
-            #tickers = ma_golden_cross(tickers, interval='day', term=60)
-            #tickers = ma_golden_cross(tickers, interval='day', term=20)
-            tickers = ma_golden_cross(tickers, interval='day', term=3)
-            print(tickers)
-            #tickers = ma_golden_cross(tickers, interval='minutes1', term=5)
-            tickers = ma_golden_cross(tickers, interval='minutes1', term=3)
+            while True:
+                tickers = pyupbit.get_tickers("KRW")
+                start_time = datetime.datetime.now()
+                
+                #------------------------------------
+                # Coin 검색 전략 추가
+                #------------------------------------
+                #tickers = ma_golden_cross(tickers, interval='day', term=60)
+                #tickers = ma_golden_cross(tickers, interval='day', term=20)
+                tickers = ma_golden_cross(tickers, interval='day', term=3)
+                #tickers = ma_golden_cross(tickers, interval='minutes1', term=5)
+                tickers = ma_golden_cross(tickers, interval='minutes1', term=3)
+                tickers = ma_golden_cross(tickers, interval='minutes1', term=1)
 
-            print(tickers)
-            tickers = net_change_desc(tickers, coin_cnt)
-            print(tickers)
+                if tickers:
+                    tickers = net_change_desc(tickers, coin_cnt)
+
+                end_time = datetime.datetime.now()
+
+                if tickers:
+                    break
             
-            end_time = datetime.datetime.now()
             print("소요시간:[",end_time - start_time, "]","전략 대상 코인 수:[",len(tickers),"]")
-                    
+
             return tickers
 
         except Exception as x:
@@ -398,7 +407,14 @@ class Coinpot:
             result = _send_get_request(url, headers=headers, data=data)
             
             if result[0] :
-                print('1:', result)
+                tmp_time = result[0][0]['created_at'][0:10] + ' ' + result[0][0]['created_at'][11:19]
+                time_term = datetime.datetime.now() - datetime.datetime.strptime(tmp_time, '%Y-%m-%d %H:%M:%S')
+                time_term_sec = time_term.seconds%60
+                if time_term_sec > 3:
+                    return 'cancel'
+                else:
+                    print('get_order_state - wating order completed!')
+
             elif not result[0] :
                 data = {'market': ticker,
                         'state': 'done',
@@ -415,9 +431,21 @@ class Coinpot:
             print(traceback.format_exc())
             return None
 
-    def cancel_wait_order(self):
-        pass 
-        return
+    def cancel_wait_order(self, uuid):
+        try:
+            url = "https://api.upbit.com/v1/order"
+            data = {"uuid": uuid}
+            headers = self._request_headers(data)
+            result = _send_delete_request(url, headers=headers, data=data)
+
+            print("미체결건 취소:", result[0])
+
+            return result[0]
+        
+        except Exception as x:
+            print(x.__class__.__name__)
+            print(traceback.format_exc())
+            return None
 
 if __name__ == "__main__":
     import pprint
@@ -447,10 +475,7 @@ if __name__ == "__main__":
             # 투자 대상 코인 조회
             target_coin= coinpot.get_coin_list()
 
-            # 투자 가능한 코인 개수에 따라 target_coin 인자 변경 
-            # target_coin[1]['market'], target_coin[2]['market'] ...
-            # TODO 매수 결과는 order list에 관리
-            # 신규 매수시 list에 추가, 매도 및 주문 취소시 해당 원소 삭제
+            # 매수
             if coinpot.is_order_possible(target_coin[0]['market'], current_invest_asset) == True:
                 order_result=coinpot.order_buy(target_coin[0]['market'], current_invest_asset)    
                 print('UUID:', order_result['uuid'], '상태:', order_result['state'])
@@ -460,12 +485,14 @@ if __name__ == "__main__":
 
         if coinpot.get_order_state(order_result['market'], order_result['uuid']) == 'done':
             signal = coinpot.status_check(order_result['market'])
+        elif coinpot.get_order_state(order_result['market'], order_result['uuid']) == 'cancel':
+            print("주문취소:",coinpot.cancel_wait_order(order_result['uuid']))
 
         print("주문신호:", signal)
 
         if signal == 'upsell' or signal == 'downsell' :
-           result = coinpot.order_sell(order_result['market']) 
-           print(result)
+           order_result = coinpot.order_sell(order_result['market']) 
+           print(order_result)
 
 
         time.sleep(1)    
