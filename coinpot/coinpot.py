@@ -198,7 +198,7 @@ class Coinpot:
             
             current_invest_asset = round(total_invest_asset - total_coin_asset -locked_asset)
             
-            print("get_invest_asset - ",
+            print("get_invest_asset() -",
                   "총자산:",total_asset,
                   "원화:",total_asset-total_coin_asset-locked_asset,
                   "코인:",total_coin_asset,
@@ -223,7 +223,7 @@ class Coinpot:
             asset_list = result[0]
             holding_coin_cnt= len(asset_list)-1
 
-            print("get_holding_coin_cnt - ",
+            print("get_holding_coin_cnt() -",
                   "보유코인갯수:", holding_coin_cnt)
 
             return holding_coin_cnt
@@ -233,9 +233,11 @@ class Coinpot:
             print(traceback.format_exc())
             return None
 
-    def get_coin_list(self, coin_cnt=1):
+    def coin_search(self, coin_cnt=1):
         try:
             while True:
+                print("coin_search() - Coin Search Start!!")
+
                 tickers = pyupbit.get_tickers("KRW")
                 start_time = datetime.datetime.now()
                 
@@ -257,7 +259,7 @@ class Coinpot:
                 if tickers:
                     break
             
-            print("소요시간:[",end_time - start_time, "]","전략 대상 코인 수:[",len(tickers),"]")
+            print("coin_search() - 소요시간:[",end_time - start_time, "]","전략 대상 코인 수:[",len(tickers),"]")
 
             return tickers
 
@@ -281,9 +283,6 @@ class Coinpot:
             volume = investing_amount // ticker_price
 
             print("order_buy - ", "대상:", ticker, "수량:",volume , "현재가:", ticker_price,"투자금액:",investing_amount)
-            
-            if volume * ticker_price < 5000:
-                return None
 
             url = "https://api.upbit.com/v1/orders"
             data = {"market": ticker,
@@ -339,10 +338,9 @@ class Coinpot:
 
     def order_sell(self, ticker):
         try:
-            print("Sell")
+            print("order_sell() - Sell!!")
             ticker_price = get_current_price(ticker)
             volume = self.get_coin_count(ticker)
-            print("ticker_price:", ticker_price, "volume:", volume)
 
             url = "https://api.upbit.com/v1/orders"
             data = {"market": ticker,
@@ -413,7 +411,7 @@ class Coinpot:
                 if time_term_sec > 3:
                     return 'cancel'
                 else:
-                    print('get_order_state - wating order completed!')
+                    return 'wait'
 
             elif not result[0] :
                 data = {'market': ticker,
@@ -438,8 +436,6 @@ class Coinpot:
             headers = self._request_headers(data)
             result = _send_delete_request(url, headers=headers, data=data)
 
-            print("미체결건 취소:", result[0])
-
             return result[0]
         
         except Exception as x:
@@ -459,41 +455,37 @@ if __name__ == "__main__":
 
     # 해당 계좌의 상태 조회
     #coinpot.get_account_status()
-
     
     while True :  
         signal = 'default' 
         print("=====================================================================================================")
-        
-        # 투자 가능 금액 조회
-        current_invest_asset = coinpot.get_invest_asset(70)
-        
+
         # 보유 코인 갯수 조회
         holding_coin_cnt = coinpot.get_holding_coin_cnt()
+        if holding_coin_cnt == 0:
+            # 투자 가능 금액 조회
+            current_invest_asset = coinpot.get_invest_asset(70)
+            # 보유 코인 갯수와 최소 투자 가능 금액 조건이 만족할시 매수
+            if current_invest_asset > 5000 :
+                # 투자 대상 코인 조회
+                target_coin= coinpot.coin_search()
+                if len(target_coin) > 0 :
+                    order_result = coinpot.order_buy(target_coin[0]['market'], current_invest_asset)    
+                    if 'market' in order_result.keys():
+                        print('UUID:', order_result['uuid'], '상태:', order_result['state'])
 
-        if current_invest_asset > 5000 and holding_coin_cnt == 0:
-            # 투자 대상 코인 조회
-            target_coin= coinpot.get_coin_list()
-
-            # 매수
-            if coinpot.is_order_possible(target_coin[0]['market'], current_invest_asset) == True:
-                order_result=coinpot.order_buy(target_coin[0]['market'], current_invest_asset)    
-                print('UUID:', order_result['uuid'], '상태:', order_result['state'])
-        
-        print('주문상태:',order_result['market'],',',
-        coinpot.get_order_state(order_result['market'], order_result['uuid']))        
-
-        if coinpot.get_order_state(order_result['market'], order_result['uuid']) == 'done':
-            signal = coinpot.status_check(order_result['market'])
-        elif coinpot.get_order_state(order_result['market'], order_result['uuid']) == 'cancel':
-            print("주문취소:",coinpot.cancel_wait_order(order_result['uuid']))
-
-        print("주문신호:", signal)
-
-        if signal == 'upsell' or signal == 'downsell' :
-           order_result = coinpot.order_sell(order_result['market']) 
-           print(order_result)
-
+        if 'market' in order_result.keys():
+            if coinpot.get_order_state(order_result['market'], order_result['uuid']) == 'done':
+                signal = coinpot.status_check(order_result['market'])
+                print("주문신호:", signal)
+                if signal == 'upsell' or signal == 'downsell' :
+                    order_result = coinpot.order_sell(order_result['market']) 
+                    print("매도주문:",order_result['uuid'], order_result['market'], order_result['state'])
+            elif coinpot.get_order_state(order_result['market'], order_result['uuid']) == 'wait': 
+                print('주문상태:',order_result['market'], 'waiting!!')        
+            elif coinpot.get_order_state(order_result['market'], order_result['uuid']) == 'cancel':
+                print("미체결주문취소:",coinpot.cancel_wait_order(order_result['uuid']))
+        elif 'error' in order_result.keys():
+            print("Error Check")
 
         time.sleep(1)    
-        
