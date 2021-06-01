@@ -21,7 +21,7 @@ def _LOG_(function, log):
     print(log)
     f.write(log+'\n')
 
-def net_change_desc(tickers, coin_cnt):
+def net_change_desc(tickers):
     try:
         url = "https://api.upbit.com/v1/ticker"
         contents = _call_public_api(url, markets=tickers)[0]
@@ -97,7 +97,9 @@ def ma_golden_cross(tickers, interval, term):
 class Coinpot:
     MAX_COIN_COUNT = 1
     INVEST_ASSET_RATIO = 70
-    order_list = []
+    order_result = {}
+    target_coin=[]
+    current_invest_asset=0
 
     def __init__(self, access, secret):
         self.access = access
@@ -250,21 +252,26 @@ class Coinpot:
                 #------------------------------------
                 #tickers = ma_golden_cross(tickers, interval='day', term=60)
                 #tickers = ma_golden_cross(tickers, interval='day', term=20)
-                tickers = ma_golden_cross(tickers, interval='day', term=3)
+                #tickers = ma_golden_cross(tickers, interval='day', term=1)
                 #tickers = ma_golden_cross(tickers, interval='minutes1', term=5)
-                tickers = ma_golden_cross(tickers, interval='minutes1', term=3)
-                tickers = ma_golden_cross(tickers, interval='minutes1', term=1)
+                #tickers = ma_golden_cross(tickers, interval='minutes1', term=3)
+                #tickers = ma_golden_cross(tickers, interval='minutes1', term=1)
 
                 if tickers:
-                    tickers = net_change_desc(tickers, coin_cnt)
-
+                    tickers = net_change_desc(tickers)
+                    print(len(tickers))
                 end_time = datetime.datetime.now()
 
                 if tickers:
                     break
+
+            for x in tickers:
+                for key, value in x:
+                    if value['price'] > self.current_invest_asset:
+                        print(x)
+                        x.pop(key)
             
             _LOG_("coin_search()", f"소요시간:{end_time-start_time}, 전량 대상 코인 수:{len(tickers)}")
-
             return tickers
 
         except Exception as x:
@@ -291,22 +298,6 @@ class Coinpot:
             result = _send_post_request(url, headers=headers, data=data)
             
             return result[0]
-        except Exception as x:
-            print(x.__class__.__name__)
-            print(traceback.format_exc())
-            return None            
-
-    def is_order_possible(self, ticker, investing_amount):
-        try:
-            ticker_price = get_current_price(ticker)
-
-            volume = investing_amount // ticker_price
-
-            if volume * ticker_price > 5000:
-                return True 
-            else:
-                return False
-        
         except Exception as x:
             print(x.__class__.__name__)
             print(traceback.format_exc())
@@ -442,6 +433,24 @@ class Coinpot:
             print(x.__class__.__name__)
             print(traceback.format_exc())
             return None
+    
+    def check_invest_possible(self):
+        # 1. 보유 코인 갯수 조회
+        if self.MAX_COIN_COUNT > self.get_holding_coin_cnt():
+            # 2. 투자 가능 금액 조회
+            self.current_invest_asset = self.get_invest_asset(self.INVEST_ASSET_RATIO)
+            if self.current_invest_asset > 5000 and 'market' not in self.order_result.keys():
+                # 3. 투자 대상 코인 조회
+                self.target_coin= self.coin_search()
+                if len(self.target_coin) > 0 :
+                    return True
+                else:
+                    return False
+            else:
+                return False
+        else:
+            return False
+ 
 
 if __name__ == "__main__":
     import pprint
@@ -453,39 +462,26 @@ if __name__ == "__main__":
     # Coinpot Trading 사용을 위한 객체 생성
     coinpot = Coinpot(access, secret)
 
-    # 해당 계좌의 상태 조회
-    #coinpot.get_account_status()
-    
     while True :  
         signal = 'default' 
-        
-        _LOG_("start!", "=====================================================================================================")
-        
-        # 보유 코인 갯수 조회
-        holding_coin_cnt = coinpot.get_holding_coin_cnt()
-        if holding_coin_cnt < coinpot.MAX_COIN_COUNT:
-            # 투자 가능 금액 조회
-            current_invest_asset = coinpot.get_invest_asset(coinpot.INVEST_ASSET_RATIO)
-            # 보유 코인 갯수와 최소 투자 가능 금액 조건이 만족할시 매수
-            if current_invest_asset > 5000 :
-                # 투자 대상 코인 조회
-                target_coin= coinpot.coin_search()
-                if len(target_coin) > 0 :
-                    order_result = coinpot.order_buy(target_coin[0]['market'], current_invest_asset)    
-                    if 'market' in order_result.keys():
-                        _LOG_("main", f"UUID:{order_result['uuid']}, STATE:{order_result['state']}")
+        _LOG_("start", "=====================================================================================================")
 
-        if 'market' in order_result.keys():
-            if coinpot.get_order_state(order_result['market'], order_result['uuid']) == 'done':
-                signal = coinpot.status_check(order_result['market'])
+        if coinpot.check_invest_possible():
+            coinpot.order_result = coinpot.order_buy(coinpot.target_coin[0]['market'], coinpot.current_invest_asset)    
+            if 'market' in coinpot.order_result.keys():
+                _LOG_("main", f"BUY - COIN:{coinpot.order_result['market']}, UUID:{coinpot.order_result['uuid']}, STATE:{coinpot.order_result['state']}")
+
+        if 'market' in coinpot.order_result.keys():
+            if coinpot.get_order_state(coinpot.order_result['market'], coinpot.order_result['uuid']) == 'done':
+                signal = coinpot.status_check(coinpot.order_result['market'])
                 if signal == 'upsell' or signal == 'downsell' :
-                    order_result = coinpot.order_sell(order_result['market']) 
-                    _LOG_("main()", f"매도주문:{order_result['uuid']}, {order_result['market']}, {order_result['state']}")
-            elif coinpot.get_order_state(order_result['market'], order_result['uuid']) == 'wait': 
-                _LOG_("main()", f"주문상태:{order_result['market']}, waiting!!")
-            elif coinpot.get_order_state(order_result['market'], order_result['uuid']) == 'cancel':
-                _LOG_("main()", f"미체결주문취소{coinpot.cancel_wait_order(order_result['uuid'])}")
-        elif 'error' in order_result.keys():
-            _LOG_("main()", "Error Check!!")
+                    coinpot.order_result = coinpot.order_sell(coinpot.order_result['market']) 
+                    _LOG_("main()", f"매도주문:{coinpot.order_result['uuid']}, {coinpot.order_result['market']}, {coinpot.order_result['state']}")
+            elif coinpot.get_order_state(coinpot.order_result['market'], coinpot.order_result['uuid']) == 'wait': 
+                _LOG_("main()", f"주문상태:{coinpot.order_result['market']}, waiting!!")
+            elif coinpot.get_order_state(coinpot.order_result['market'], coinpot.order_result['uuid']) == 'cancel':
+                _LOG_("main()", f"미체결주문취소{coinpot.cancel_wait_order(coinpot.order_result['uuid'])}")
+        elif 'error' in coinpot.order_result.keys():
+            _LOG_("main()", f"ERROR!!-{ coinpot.order_result['error']['message']}")
 
         time.sleep(1)
