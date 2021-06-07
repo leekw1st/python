@@ -95,15 +95,16 @@ def ma_golden_cross(tickers, interval, term):
 
 
 class Coinpot:
-    MAX_COIN_COUNT = 1
-    INVEST_ASSET_RATIO = 70
-    order_result = {}
-    target_coin=[]
-    current_invest_asset=0
 
-    def __init__(self, access, secret):
+    def __init__(self, access, secret, max_coin_count=1, invest_asset_ratio=70):
         self.access = access
         self.secret = secret
+        self.MAX_COIN_COUNT = max_coin_count
+        self.INVEST_ASSET_RATIO = invest_asset_ratio
+        self.target_coin=[]
+        self.order_result = {}
+        self.current_invest_asset=0
+        self.invest_possible = False 
 
     def _request_headers(self, query=None):
         payload = {
@@ -241,11 +242,12 @@ class Coinpot:
 
     def coin_search(self, coin_cnt=1):
         try:
+            start_time = datetime.datetime.now()
+            
             while True:
                 _LOG_("coin_search()","Coin Search Start!!")
 
                 tickers = pyupbit.get_tickers("KRW")
-                start_time = datetime.datetime.now()
                 
                 #------------------------------------
                 # Coin 검색 전략 추가
@@ -259,18 +261,15 @@ class Coinpot:
 
                 if tickers:
                     tickers = net_change_desc(tickers)
-                    print(len(tickers))
-                end_time = datetime.datetime.now()
-
+                
+                tickers = [i for i in tickers if i['price'] < self.current_invest_asset]
+                
                 if tickers:
                     break
+                
+            end_time = datetime.datetime.now()
 
-            for x in tickers:
-                for key, value in x:
-                    if value['price'] > self.current_invest_asset:
-                        print(x)
-                        x.pop(key)
-            
+            print(tickers)
             _LOG_("coin_search()", f"소요시간:{end_time-start_time}, 전량 대상 코인 수:{len(tickers)}")
             return tickers
 
@@ -439,13 +438,9 @@ class Coinpot:
         if self.MAX_COIN_COUNT > self.get_holding_coin_cnt():
             # 2. 투자 가능 금액 조회
             self.current_invest_asset = self.get_invest_asset(self.INVEST_ASSET_RATIO)
-            if self.current_invest_asset > 5000 and 'market' not in self.order_result.keys():
-                # 3. 투자 대상 코인 조회
-                self.target_coin= self.coin_search()
-                if len(self.target_coin) > 0 :
-                    return True
-                else:
-                    return False
+            #if self.current_invest_asset > 5000 and 'market' not in self.order_result.keys():
+            if self.current_invest_asset > 5000 :
+                return True
             else:
                 return False
         else:
@@ -460,13 +455,28 @@ if __name__ == "__main__":
         secret = lines[1].strip()
 
     # Coinpot Trading 사용을 위한 객체 생성
-    coinpot = Coinpot(access, secret)
+    # parm = access key, secert key, coin count, ratio of investment
+    coinpot = Coinpot(access, secret, 2, 70)
 
     while True :  
         signal = 'default' 
         _LOG_("start", "=====================================================================================================")
 
+        # 1. 투자 가능 상태 확인
         if coinpot.check_invest_possible():
+            coinpot.invest_possible = True
+        else:
+            coinpot.invest_possible = False
+
+        # 3. 투자 대상 코인 Search
+        if coinpot.invest_possible:
+            coinpot.target_coin = coinpot.coin_search()
+            if len(coinpot.target_coin) > 0 :
+                coinpot.invest_possible = True
+            else:
+                coinpot.invest_possible = False
+
+        if coinpot.invest_possible:
             coinpot.order_result = coinpot.order_buy(coinpot.target_coin[0]['market'], coinpot.current_invest_asset)    
             if 'market' in coinpot.order_result.keys():
                 _LOG_("main", f"BUY - COIN:{coinpot.order_result['market']}, UUID:{coinpot.order_result['uuid']}, STATE:{coinpot.order_result['state']}")
